@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+reports/
+reports/*.json
+reports/*.txt
+reports/*.md
+logs/
+news_sentiment.json
