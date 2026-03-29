@@ -12,6 +12,7 @@ DEFAULT_MARKET_SYMBOLS = {
     "RELIANCE.NS": "Reliance Industries",
     "HDFCBANK.NS": "HDFC Bank",
     "ICICIBANK.NS": "ICICI Bank",
+    "GOLDBEES.NS": "GoldBeES ETF",
     "^INDIAVIX": "India VIX",
     "^VIX": "CBOE VIX",
     "CL=F": "Crude Oil",
@@ -21,6 +22,12 @@ DEFAULT_MARKET_SYMBOLS = {
 }
 
 WATCHLIST_SYMBOLS = ("RELIANCE.NS", "HDFCBANK.NS", "ICICIBANK.NS", "^NSEI")
+SCREENER_SYMBOLS = {
+    "RELIANCE.NS": "Reliance Industries",
+    "HDFCBANK.NS": "HDFC Bank",
+    "GOLDBEES.NS": "GoldBeES ETF",
+    "BTC-USD": "Bitcoin",
+}
 
 
 def _load_dotenv(dotenv_path: Path) -> None:
@@ -47,7 +54,9 @@ class MonitorConfig:
     gift_nifty_url: str
     market_symbols: Mapping[str, str]
     watchlist_symbols: tuple[str, ...]
+    screener_symbols: Mapping[str, str]
     report_dir: Path
+    database_path: Path
 
 
 def load_config(project_root: Path | None = None) -> MonitorConfig:
@@ -70,5 +79,7 @@ def load_config(project_root: Path | None = None) -> MonitorConfig:
         ),
         market_symbols=DEFAULT_MARKET_SYMBOLS,
         watchlist_symbols=WATCHLIST_SYMBOLS,
+        screener_symbols=SCREENER_SYMBOLS,
         report_dir=root / "reports",
+        database_path=root / "wealth_logs.duckdb",
     )

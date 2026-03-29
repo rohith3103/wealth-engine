@@ -66,6 +66,7 @@ def build_demo_dataset(
         "RELIANCE.NS": InstrumentSnapshot("RELIANCE.NS", "Reliance Industries", 2948.50, 0.18, 0.74, -0.20, 0.56, 0.44, 64, now_utc),
         "HDFCBANK.NS": InstrumentSnapshot("HDFCBANK.NS", "HDFC Bank", 1682.20, -0.02, 0.21, -0.10, 0.41, 0.39, 64, now_utc),
         "ICICIBANK.NS": InstrumentSnapshot("ICICIBANK.NS", "ICICI Bank", 1219.70, 0.09, 0.34, -0.32, 0.47, 0.35, 64, now_utc),
+        "GOLDBEES.NS": InstrumentSnapshot("GOLDBEES.NS", "GoldBeES ETF", 63.40, 0.11, 0.56, 1.44, 0.26, 0.21, 64, now_utc),
         "^INDIAVIX": InstrumentSnapshot("^INDIAVIX", "India VIX", 26.80, 0.80, 2.10, 8.40, 1.05, 0.98, 64, now_utc),
         "^VIX": InstrumentSnapshot("^VIX", "CBOE VIX", 31.05, 0.80, 2.10, 12.50, 1.05, 0.98, 64, now_utc),
         "CL=F": InstrumentSnapshot("CL=F", "Crude Oil", 99.64, 0.55, 1.45, 10.20, 0.72, 0.68, 64, now_utc),

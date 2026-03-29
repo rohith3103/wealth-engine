@@ -6,15 +6,18 @@ from math import floor
 from statistics import mean
 
 from wealth_monitor.config import MonitorConfig
+from wealth_monitor.database import log_cycle
 from wealth_monitor.news import load_news_sentiment
 from wealth_monitor.models import (
     CycleAssessment,
     GiftNiftySnapshot,
     InstrumentSnapshot,
     NewsHeadline,
+    ScreenedAsset,
     SetupCandidate,
     TradePlan,
 )
+from wealth_monitor.screener import select_target_asset
 
 OIL_NEGATIVE_SECTORS = [
     "Auto sector: negative bias while crude stays above $95.",
@@ -121,6 +124,32 @@ def _divergence_note(
     return "News flow and price action are broadly aligned."
 
 
+def _snapshot_score(
+    snapshot: InstrumentSnapshot,
+    market_sentiment: str,
+    force_long: bool = False,
+) -> tuple[float, int]:
+    bearish_mode = "BEARISH" in market_sentiment.upper() and not force_long
+    direction_bonus = snapshot.change_pct_1h if not bearish_mode else -snapshot.change_pct_1h
+    daily_alignment = snapshot.change_pct_1d if not bearish_mode else -snapshot.change_pct_1d
+    stability_bonus = max(0.0, 1.5 - snapshot.volatility_pct)
+    score = direction_bonus + (0.4 * daily_alignment) + stability_bonus - snapshot.atr_proxy_pct
+    confidence = max(
+        35,
+        min(
+            98,
+            round(
+                55
+                + abs(snapshot.change_pct_1h) * 18
+                + abs(snapshot.change_pct_1d) * 6
+                + max(0.0, 1.2 - snapshot.volatility_pct) * 12
+                - snapshot.atr_proxy_pct * 8
+            ),
+        ),
+    )
+    return score, confidence
+
+
 def _pick_candidate(
     watchlist_symbols: tuple[str, ...],
     snapshots: dict[str, InstrumentSnapshot],
@@ -136,10 +165,7 @@ def _pick_candidate(
         if not snapshot:
             continue
 
-        direction_bonus = snapshot.change_pct_1h if not bearish_mode else -snapshot.change_pct_1h
-        daily_alignment = snapshot.change_pct_1d if not bearish_mode else -snapshot.change_pct_1d
-        stability_bonus = max(0.0, 1.5 - snapshot.volatility_pct)
-        score = direction_bonus + (0.4 * daily_alignment) + stability_bonus - snapshot.atr_proxy_pct
+        score, _ = _snapshot_score(snapshot, market_sentiment, force_long=not bearish_mode)
 
         if score > best_score:
             best_score = score
@@ -148,19 +174,7 @@ def _pick_candidate(
     if not best_symbol:
         return None
 
-    confidence = max(
-        35,
-        min(
-            98,
-            round(
-                55
-                + abs(best_symbol.change_pct_1h) * 18
-                + abs(best_symbol.change_pct_1d) * 6
-                + max(0.0, 1.2 - best_symbol.volatility_pct) * 12
-                - best_symbol.atr_proxy_pct * 8
-            ),
-        ),
-    )
+    _, confidence = _snapshot_score(best_symbol, market_sentiment, force_long=not bearish_mode)
 
     return SetupCandidate(
         symbol=best_symbol.symbol,
@@ -173,6 +187,37 @@ def _pick_candidate(
             f"({best_symbol.change_pct_1d:+.2f}%), with volatility at "
             f"{best_symbol.volatility_pct:.2f}%."
         ),
+    )
+
+
+def _pick_candidate_from_screened_asset(
+    screened_asset: ScreenedAsset | None,
+    snapshots: dict[str, InstrumentSnapshot],
+    market_sentiment: str,
+) -> SetupCandidate | None:
+    if not screened_asset:
+        return None
+
+    snapshot = snapshots.get(screened_asset.symbol)
+    if not snapshot:
+        return None
+
+    _, confidence = _snapshot_score(
+        snapshot,
+        market_sentiment,
+        force_long=screened_asset.defensive_hedge,
+    )
+    rationale = (
+        f"{screened_asset.rationale} {snapshot.display_name} is printing "
+        f"{snapshot.change_pct_1h:+.2f}% over 1 hour and {snapshot.change_pct_1d:+.2f}% "
+        f"over 1 day, with volatility at {snapshot.volatility_pct:.2f}%."
+    )
+    return SetupCandidate(
+        symbol=snapshot.symbol,
+        display_name=snapshot.display_name,
+        reference_price=snapshot.last_price,
+        confidence=confidence,
+        rationale=rationale,
     )
 
 
@@ -310,6 +355,7 @@ def _build_trade_plan(
     weekend_mode: bool,
     market_sentiment: str,
     status: str,
+    defensive_hedge: bool = False,
 ) -> tuple[TradePlan | None, str | None]:
     if weekend_mode or not candidate:
         return None, None
@@ -333,7 +379,7 @@ def _build_trade_plan(
     if stop_loss_gap <= 0:
         return None, "Stop-loss gap is invalid, so position sizing could not be calculated."
 
-    action = "SELL" if "BEARISH" in market_sentiment.upper() else "BUY"
+    action = "BUY" if defensive_hedge else ("SELL" if "BEARISH" in market_sentiment.upper() else "BUY")
     stop_loss_price = (
         round(entry_price + stop_loss_gap, 2)
         if action == "SELL"
@@ -414,6 +460,15 @@ def assess_cycle(
 ) -> CycleAssessment:
     news_sentiment = load_news_sentiment(config, headlines=headlines)
     weekend_mode = timestamp.weekday() >= 5
+    screened_asset = (
+        None
+        if weekend_mode
+        else select_target_asset(
+            config.screener_symbols,
+            news_sentiment.fear_score,
+            snapshots=snapshots,
+        )
+    )
     news_bias = _news_bias(headlines, timestamp)
     nifty = snapshots.get("^NSEI")
     friday_nse_close = nifty.last_price if nifty else None
@@ -434,7 +489,13 @@ def assess_cycle(
 
     global_risk = _global_risk(news_bias, snapshots, gift_gap_pct)
     divergence_note = _divergence_note(news_bias, nifty, weekend_mode, gift_gap_pct, gift_nifty)
-    candidate = None if weekend_mode else _pick_candidate(config.watchlist_symbols, snapshots, market_sentiment)
+    candidate = None
+    if not weekend_mode:
+        candidate = _pick_candidate_from_screened_asset(
+            screened_asset,
+            snapshots,
+            market_sentiment,
+        ) or _pick_candidate(config.watchlist_symbols, snapshots, market_sentiment)
     kill_switch_reason = _kill_switch(
         weekend_mode=weekend_mode,
         headlines=headlines,
@@ -471,7 +532,7 @@ def assess_cycle(
             rationale = (
                 f"AI fear score is {news_sentiment.fear_score}/100 with dominant theme "
                 f"{news_sentiment.dominant_theme}. News bias scored {news_bias:+.2f}. "
-                "No watchlist candidate stood out."
+                "No screened asset candidate stood out."
             )
 
     crude = snapshots.get("CL=F")
@@ -484,6 +545,7 @@ def assess_cycle(
         weekend_mode=weekend_mode,
         market_sentiment=market_sentiment,
         status=status,
+        defensive_hedge=bool(screened_asset and screened_asset.defensive_hedge),
     )
     trade_plan, fear_control_reason = _apply_fear_risk_controls(
         trade_plan=trade_plan,
@@ -506,8 +568,14 @@ def assess_cycle(
             kill_switch_reason = sizing_blocker
     recommended_action = trade_plan.action if trade_plan else "HOLD_CASH"
     risk_amount = round(config.available_capital * config.risk_per_trade, 2)
+    recommended_asset = (
+        screened_asset.symbol
+        if screened_asset
+        else (candidate.symbol if candidate else None)
+    )
+    india_vix = _preferred_vix(snapshots)
 
-    return CycleAssessment(
+    assessment = CycleAssessment(
         timestamp=timestamp,
         mode_label="Weekend Gap Analysis" if weekend_mode else "Intraday Reaction Monitor",
         weekend_mode=weekend_mode,
@@ -539,3 +607,18 @@ def assess_cycle(
         headlines=headlines,
         snapshots=snapshots,
     )
+    try:
+        log_cycle(
+            database_path=config.database_path,
+            timestamp=timestamp,
+            fear_score=news_sentiment.fear_score,
+            dominant_theme=news_sentiment.dominant_theme,
+            india_vix=india_vix.last_price if india_vix else None,
+            recommended_asset=recommended_asset,
+            action_taken=recommended_action,
+            position_size=trade_plan.target_quantity if trade_plan else 0,
+        )
+    except Exception as exc:
+        print(f"Warning: cycle logging failed: {exc}")
+
+    return assessment

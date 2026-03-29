@@ -164,6 +164,7 @@ def render_cycle_report(assessment: CycleAssessment) -> tuple[str, dict]:
         "RELIANCE.NS",
         "HDFCBANK.NS",
         "ICICIBANK.NS",
+        "GOLDBEES.NS",
         "^INDIAVIX",
         "^VIX",
         "CL=F",
@@ -217,7 +218,7 @@ def render_cycle_report(assessment: CycleAssessment) -> tuple[str, dict]:
     elif candidate:
         signal_block.extend(
             [
-                f"- Watchlist Symbol: {candidate.symbol} ({candidate.display_name})",
+                f"- Screened Asset: {candidate.symbol} ({candidate.display_name})",
                 f"- Reference Price: {candidate.reference_price:.2f}",
                 f"- Confidence: {assessment.confidence}%",
                 f"- Confidence Threshold: {assessment.confidence_threshold}%",
@@ -227,7 +228,7 @@ def render_cycle_report(assessment: CycleAssessment) -> tuple[str, dict]:
     else:
         signal_block.extend(
             [
-                "- Watchlist Symbol: None",
+                "- Screened Asset: None",
                 "- Confidence: 0%",
                 f"- Confidence Threshold: {assessment.confidence_threshold}%",
                 f"- Rationale: {assessment.rationale}",

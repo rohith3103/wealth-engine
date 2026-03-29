@@ -21,6 +21,17 @@ class NewsSentimentSnapshot:
 
 
 @dataclass(slots=True)
+class ScreenedAsset:
+    symbol: str
+    display_name: str
+    current_price: float
+    previous_close: float
+    momentum_1d: float
+    defensive_hedge: bool
+    rationale: str
+
+
+@dataclass(slots=True)
 class InstrumentSnapshot:
     symbol: str
     display_name: str
