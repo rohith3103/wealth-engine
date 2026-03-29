@@ -51,6 +51,15 @@ def _telegram_chat_id() -> str:
     return os.getenv("TELEGRAM_CHAT_ID", FALLBACK_TELEGRAM_CHAT_ID)
 
 
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _resolve_local_path(path_like: str) -> Path:
+    path = Path(path_like)
+    return path if path.is_absolute() else (_project_root() / path)
+
+
 def _is_quota_error(exc: Exception) -> bool:
     text = str(exc).lower()
     status_code = getattr(exc, "status_code", None)
@@ -135,7 +144,69 @@ def generate_plain_english_report(json_data: dict) -> str:
     )
 
 
-def send_telegram_alert(summary_text: str) -> None:
+def generate_fear_chart(db_path: str = "wealth_logs.duckdb") -> Path | None:
+    import duckdb
+    import matplotlib.pyplot as plt
+    import pandas as pd
+
+    database_path = _resolve_local_path(db_path)
+    if not database_path.exists():
+        return None
+
+    connection = duckdb.connect(str(database_path), read_only=True)
+    try:
+        chart_df = connection.execute(
+            """
+            SELECT timestamp, fear_score
+            FROM cycle_history
+            ORDER BY timestamp DESC
+            LIMIT 20
+            """
+        ).df()
+    finally:
+        connection.close()
+
+    if chart_df.empty:
+        return None
+
+    chart_df["timestamp"] = pd.to_datetime(chart_df["timestamp"])
+    chart_df = chart_df.sort_values("timestamp")
+
+    output_path = _project_root() / "latest_chart.png"
+    plt.style.use("dark_background")
+    fig, ax = plt.subplots(figsize=(10, 5), dpi=150)
+    fig.patch.set_facecolor("#0b1220")
+    ax.set_facecolor("#0f172a")
+    ax.plot(
+        chart_df["timestamp"],
+        chart_df["fear_score"],
+        color="#38bdf8",
+        linewidth=2.5,
+        marker="o",
+        markersize=4,
+    )
+    ax.fill_between(
+        chart_df["timestamp"],
+        chart_df["fear_score"],
+        color="#38bdf8",
+        alpha=0.12,
+    )
+    ax.set_title("AI Fear Score Trend", color="#e2e8f0", fontsize=14, pad=14)
+    ax.set_xlabel("Timestamp", color="#cbd5e1")
+    ax.set_ylabel("Fear Score", color="#cbd5e1")
+    ax.set_ylim(0, 100)
+    ax.grid(True, color="#334155", alpha=0.35, linestyle="--", linewidth=0.7)
+    ax.tick_params(axis="x", colors="#94a3b8", rotation=25)
+    ax.tick_params(axis="y", colors="#94a3b8")
+    for spine in ax.spines.values():
+        spine.set_color("#334155")
+    fig.tight_layout()
+    fig.savefig(output_path, bbox_inches="tight", facecolor=fig.get_facecolor())
+    plt.close(fig)
+    return output_path
+
+
+def _send_text_telegram_alert(summary_text: str) -> None:
     try:
         response = requests.post(
             f"https://api.telegram.org/bot{_telegram_bot_token()}/sendMessage",
@@ -148,6 +219,29 @@ def send_telegram_alert(summary_text: str) -> None:
         response.raise_for_status()
     except Exception as exc:
         print(f"Warning: Telegram alert failed: {exc}")
+
+
+def send_telegram_alert(summary_text: str, db_path: str = "wealth_logs.duckdb") -> None:
+    try:
+        chart_path = generate_fear_chart(db_path=db_path)
+        if not chart_path or not chart_path.exists():
+            _send_text_telegram_alert(summary_text)
+            return
+
+        with chart_path.open("rb") as chart_file:
+            response = requests.post(
+                f"https://api.telegram.org/bot{_telegram_bot_token()}/sendPhoto",
+                data={
+                    "chat_id": _telegram_chat_id(),
+                    "caption": summary_text,
+                },
+                files={"photo": ("latest_chart.png", chart_file, "image/png")},
+                timeout=30,
+            )
+        response.raise_for_status()
+    except Exception as exc:
+        print(f"Warning: Telegram photo alert failed, falling back to text: {exc}")
+        _send_text_telegram_alert(summary_text)
 
 
 def render_cycle_report(assessment: CycleAssessment) -> tuple[str, dict]:
@@ -371,8 +465,6 @@ def save_cycle_report(
 
     markdown_path.write_text(report_text, encoding="utf-8")
     json_path.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
-    english_summary_path.write_text(
-        generate_plain_english_report(report_payload),
-        encoding="utf-8",
-    )
-    send_telegram_alert(english_summary_path.read_text(encoding="utf-8"))
+    summary_text = generate_plain_english_report(report_payload)
+    english_summary_path.write_text(summary_text, encoding="utf-8")
+    send_telegram_alert(summary_text)
