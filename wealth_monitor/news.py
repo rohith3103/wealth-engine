@@ -13,7 +13,6 @@ from wealth_monitor.config import MonitorConfig
 from wealth_monitor.models import NewsHeadline, NewsSentimentSnapshot
 
 
-FALLBACK_GEMINI_API_KEY = "AIzaSyAhqG9azzqdegfxu6cG1XnTXfT9KPCwz6o"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_DOMINANT_THEME = "Macro Risk Watch"
 THEME_WORD_PATTERN = re.compile(r"[A-Za-z0-9]+")
@@ -82,7 +81,13 @@ def _news_sentiment_path(config: MonitorConfig) -> Path:
 
 
 def _gemini_api_key() -> str:
-    return os.getenv("GEMINI_API_KEY", FALLBACK_GEMINI_API_KEY)
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not configured. "
+            "Set it in the environment or .env file."
+        )
+    return key
 
 
 def _gemini_model() -> str:
