@@ -9,9 +9,7 @@ import requests
 
 from wealth_monitor.models import CycleAssessment
 
-FALLBACK_GEMINI_API_KEY = "AIzaSyAhqG9azzqdegfxu6cG1XnTXfT9KPCwz6o"
-FALLBACK_TELEGRAM_BOT_TOKEN = "8759152666:AAFrtVPyT9Ew5f7iUKT045RRnKrpV_LfQ0U"
-FALLBACK_TELEGRAM_CHAT_ID = "6208167034"
+
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 PLAIN_ENGLISH_SYSTEM_PROMPT = (
     "You are a direct, highly accurate financial assistant. Read the provided "
@@ -36,7 +34,13 @@ def _format_trade_time(assessment: CycleAssessment, symbol: str) -> str:
 
 
 def _gemini_api_key() -> str:
-    return os.getenv("GEMINI_API_KEY", FALLBACK_GEMINI_API_KEY)
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError(
+            "GEMINI_API_KEY is not configured. "
+            "Set it in the environment or .env file."
+        )
+    return key
 
 
 def _gemini_model() -> str:
@@ -44,11 +48,23 @@ def _gemini_model() -> str:
 
 
 def _telegram_bot_token() -> str:
-    return os.getenv("TELEGRAM_BOT_TOKEN", FALLBACK_TELEGRAM_BOT_TOKEN)
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
+        raise RuntimeError(
+            "TELEGRAM_BOT_TOKEN is not configured. "
+            "Set it in the environment or .env file."
+        )
+    return token
 
 
 def _telegram_chat_id() -> str:
-    return os.getenv("TELEGRAM_CHAT_ID", FALLBACK_TELEGRAM_CHAT_ID)
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    if not chat_id:
+        raise RuntimeError(
+            "TELEGRAM_CHAT_ID is not configured. "
+            "Set it in the environment or .env file."
+        )
+    return chat_id
 
 
 def _project_root() -> Path:
